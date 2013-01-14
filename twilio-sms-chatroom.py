@@ -6,7 +6,6 @@ from twilio import twiml
 
 app = Flask(__name__)
 client = TwilioRestClient()
-twilio_number = "+442071838653"
 
 participants = {}
 
