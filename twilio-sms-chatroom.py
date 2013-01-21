@@ -43,7 +43,7 @@ def sms():
     else:
         # New Number and not a Command
         print "---> Received message from unknown number, %s" % (from_number)
-        sendmsg(from_number, ">> You must first join the chat using the command '#JOIN <username>'")
+        sendmsg(from_number, ">> You must first join the chat using the command '#JOIN <nickname>'")
 
     return 'Done'
 
@@ -61,21 +61,48 @@ def join(from_number, username):
     if from_number in participants:
         print "---> %s has already joined." % (from_number)
         return
-    if len(username) > 15:
-        print "---> Username for joinee, %s, is too long." % (from_number)
-        sendmsg(from_number, ">> Username must not be longer than 20 characters")
+    if len(username) > 15 or len(username) < 3:
+        print "---> Nickname for joinee, %s, is too long or too short." % (from_number)
+        sendmsg(from_number, ">> Nickname must be between 3 and 20 characters")
         return
     if username in participants.values():
-        print "---> Username for joinee, %s, is already in use." % (from_number)
-        sendmsg(from_number, ">> Username already in use.")
+        print "---> Nickname for joinee, %s, is already in use." % (from_number)
+        sendmsg(from_number, ">> Nickname already in use.")
         return
     participants[from_number] = username
     print ">> %s has joined the chat." % (username)
     sendmsg(from_number, ">> Welcome to the chat, %s" % (username))
     msgall(">> %s has joined the chat." % (username), from_number) 
-   
+
+# Someone wants to leave
+def leave(from_number, msg):
+    if from_number in participants:
+        print ">> %s has left the chat." % (participants[from_number])
+        msgall( ">> %s has left the chat." % (participants[from_number]))
+        del participants[from_number]
+    else:
+        print "---> %s tried to leave without having ever joined." % (from_number)
+
+# Someone wants to change their nickname
+def nick(from_number, new):
+    if from_number not in participants:
+        print "---> %s tried to change nickname without having ever joined." % (from_number)
+        sendmsg(from_number, ">> You must first join the chat using '#JOIN <nickname>' before using that command."
+        return
+    if len(new) > 15 or len(new) < 3:
+        print "---> New nickname for %s is too long or too short." % (participants[from_number])
+        sendmsg(from_number, ">> Nickname must be between 3 and 20 characters")
+        return
+    if new in participants.values():
+        print "---> New nickname for %s is already in use." % (participants[from_number])
+        sendmsg(from_number, ">> Nickname already in use.")
+        return
+    print ">> %s is now known as %s." % (participants[from_number],new)
+    msgall(">> %s is now known as %s." % (participants[from_number],new)) 
+    participants[from_number] = new
+
 # Send a message to all participants (excl. 2nd arg)
-def msgall(message, exclude):
+def msgall(message, exclude=0):
     for x in participants:
         if x != exclude:
             sendmsg(x, message)
