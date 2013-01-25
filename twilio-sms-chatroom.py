@@ -1,21 +1,23 @@
 import os
 import string
+import redis
 from flask import Flask
 from flask import request
 from twilio.rest import TwilioRestClient
-from twilio import twiml
 
-app = Flask(__name__)
-client = TwilioRestClient()
+
+flask_app = Flask(__name__)
+twilio_client = TwilioRestClient()
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
 participants = {}
 
-@app.route('/')
+@flask_app.route('/')
 def index():
     return "SMS Chatroom"
 
 # Received an SMS
-@app.route('/sms', methods=['GET','POST'])
+@flask_app.route('/sms', methods=['GET','POST'])
 def sms():
 
     # Check its a POST request
@@ -27,6 +29,7 @@ def sms():
     if not from_number.startswith("+"):
         print "---> Received SMS from invalid phone number"
         return 'Invalid number'
+
     message = request.form['Body']
     if not message:
         print "---> Received blank sms from %s" % (from_number)
@@ -50,6 +53,8 @@ def sms():
 # Command
 def sms_command(from_number, message):
     command = message.split(" ", 1)
+    if len(command) == 1:
+        command.append('')
     try:
         globals()[command[0].lower()[1:]](from_number, command[1])
     except:
@@ -70,24 +75,20 @@ def join(from_number, username):
         sendmsg(from_number, ">> Nickname already in use.")
         return
     participants[from_number] = username
-    print ">> %s has joined the chat." % (username)
     sendmsg(from_number, ">> Welcome to the chat, %s" % (username))
     msgall(">> %s has joined the chat." % (username), from_number) 
 
 # Someone wants to leave
-def leave(from_number, msg):
+def leave(from_number, msg=''):
     if from_number in participants:
-        print ">> %s has left the chat." % (participants[from_number])
         msgall( ">> %s has left the chat." % (participants[from_number]))
         del participants[from_number]
-    else:
-        print "---> %s tried to leave without having ever joined." % (from_number)
 
 # Someone wants to change their nickname
 def nick(from_number, new):
     if from_number not in participants:
         print "---> %s tried to change nickname without having ever joined." % (from_number)
-        sendmsg(from_number, ">> You must first join the chat using '#JOIN <nickname>' before using that command."
+        sendmsg(from_number, ">> You must first join the chat using '#JOIN <nickname>' before using that command.")
         return
     if len(new) > 15 or len(new) < 3:
         print "---> New nickname for %s is too long or too short." % (participants[from_number])
@@ -97,12 +98,23 @@ def nick(from_number, new):
         print "---> New nickname for %s is already in use." % (participants[from_number])
         sendmsg(from_number, ">> Nickname already in use.")
         return
-    print ">> %s is now known as %s." % (participants[from_number],new)
     msgall(">> %s is now known as %s." % (participants[from_number],new)) 
     participants[from_number] = new
 
+def names(from_number, msg=''):
+    if from_number not in participants:
+        sendmsg(from_number, ">> You must first join the chat using '#JOIN <nickname>' before using that command.")
+        return
+
+    finalmsg = ">> "
+    for x in participants.values():
+        finalmsg += "%s, " % (x)
+    print finalmsg
+    sendmsg(from_number, finalmsg)
+
 # Send a message to all participants (excl. 2nd arg)
 def msgall(message, exclude=0):
+    print message
     for x in participants:
         if x != exclude:
             sendmsg(x, message)
@@ -115,13 +127,12 @@ def smsreceivedmsg(number, message):
         sendmsg(number, ">> Messages must not be longer than 120 characters")
         return
     finalmsg = "<%s> %s" % (participants[number], message)
-    print finalmsg
     msgall(finalmsg, number)
 
 # Send an SMS to a number via twilio
 def sendmsg(num, msg):
     try:
-        message = client.sms.messages.create(to=num, body=msg, from_=config('TWILIO_PHONE_NUMBER'))
+        message = twilio_client.sms.messages.create(to=num, body=msg, from_=config('TWILIO_PHONE_NUMBER'))
     except:
         print "---> Error sending SMS to %s" % (num)
 
@@ -136,5 +147,5 @@ def config(var):
 # Start flask
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    flask_app.run(host='0.0.0.0', port=port)
 
