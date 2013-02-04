@@ -8,9 +8,7 @@ from twilio.rest import TwilioRestClient
 
 flask_app = Flask(__name__)
 twilio_client = TwilioRestClient()
-redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
-
-participants = {}
+r = redis.StrictRedis(host='localhost', port=6379, db=0)
 
 @flask_app.route('/')
 def index():
@@ -40,7 +38,7 @@ def sms():
         sms_command(from_number, message)
         return 'Received command'
 
-    if from_number in participants:
+    if r.sismember("participants", from_number):
         # Existing Number
         smsreceivedmsg(from_number, message)
     else:
@@ -55,78 +53,87 @@ def sms_command(from_number, message):
     command = message.split(" ", 1)
     if len(command) == 1:
         command.append('')
+    participant = r.sismember("participants", from_number)
     try:
-        globals()[command[0].lower()[1:]](from_number, command[1])
+        globals()[command[0].lower()[1:]](from_number, participant, command[1])
     except:
         print "---> Invalid command received from %s (%s)" % (from_number, command[0])
         sendmsg(from_number, ">> Invalid command.")
 
 # Someone wants to join
-def join(from_number, username):
-    if from_number in participants:
-        print "---> %s has already joined." % (from_number)
-        return
-    if len(username) > 15 or len(username) < 3:
-        print "---> Nickname for joinee, %s, is too long or too short." % (from_number)
+def join(from_number, participant, nickname):
+    if len(nickname) > 15 or len(nickname) < 3:
+        print "---> Nickname for joinee, %s, is too long or too short." % from_number
         sendmsg(from_number, ">> Nickname must be between 3 and 20 characters")
         return
-    if username in participants.values():
-        print "---> Nickname for joinee, %s, is already in use." % (from_number)
-        sendmsg(from_number, ">> Nickname already in use.")
-        return
-    participants[from_number] = username
-    sendmsg(from_number, ">> Welcome to the chat, %s" % (username))
-    msgall(">> %s has joined the chat." % (username), from_number) 
+    
+    if r.sadd("participants", from_number):
+        if r.sadd("nicknames", nickname):
+            r.set("participant:%s:nickname" % (from_number), nickname)
+            sendmsg(from_number, ">> Welcome to the chat, %s. Currently %s users." % (nickname, r.scard("nicknames")))
+            msgall(">> %s has joined the chat." % (nickname), from_number)
+        else:
+            print "---> Nickname for joinee, %s, is already in use." % from_number
+            sendmsg(from_number, ">> Nickname already in use.")
+            r.srem("participants", from_number)
+    else:
+        print "---> %s has already joined." % from_number
 
 # Someone wants to leave
-def leave(from_number, msg=''):
-    if from_number in participants:
-        msgall( ">> %s has left the chat." % (participants[from_number]))
-        del participants[from_number]
+def leave(from_number, participant, msg=''):
+    if participant:
+        nickname = r.get("participant:%s:nickname" % from_number)
+        msgall( ">> %s has left the chat." % nickname)
+        r.srem("participants", from_number)
+        r.srem("nicknames", nickname)
+        r.delete("participant:%s:nickname" % from_number)
 
 # Someone wants to change their nickname
-def nick(from_number, new):
-    if from_number not in participants:
-        print "---> %s tried to change nickname without having ever joined." % (from_number)
-        sendmsg(from_number, ">> You must first join the chat using '#JOIN <nickname>' before using that command.")
-        return
+def nick(from_number, participant, new):
+    current = r.get("participant:%s:nickname" % from_number)
+    
+    if not participant: return
+
     if len(new) > 15 or len(new) < 3:
-        print "---> New nickname for %s is too long or too short." % (participants[from_number])
+        print "---> New nickname for %s is too long or too short." % current
         sendmsg(from_number, ">> Nickname must be between 3 and 20 characters")
         return
-    if new in participants.values():
-        print "---> New nickname for %s is already in use." % (participants[from_number])
+
+    if r.sadd("nicknames", new):
+        r.srem("nicknames", current)
+        r.set("participant:%s:nickname" % (from_number), new)
+        msgall(">> %s is now known as %s" % (current, new))
+    else:
+        print "---> New nickname for %s is already in use." % current
         sendmsg(from_number, ">> Nickname already in use.")
         return
-    msgall(">> %s is now known as %s." % (participants[from_number],new)) 
-    participants[from_number] = new
 
-def names(from_number, msg=''):
-    if from_number not in participants:
-        sendmsg(from_number, ">> You must first join the chat using '#JOIN <nickname>' before using that command.")
-        return
 
-    finalmsg = ">> "
-    for x in participants.values():
-        finalmsg += "%s, " % (x)
+def names(from_number, participant, msg=''):
+    if not participant: return
+
+    finalmsg = ">> Currently %s users." % r.scard("nicknames")
+    for x in r.smembers("nicknames"):
+        finalmsg += "  %s" % (x)
     print finalmsg
     sendmsg(from_number, finalmsg)
 
 # Send a message to all participants (excl. 2nd arg)
 def msgall(message, exclude=0):
     print message
-    for x in participants:
+    for x in r.smembers("participants"):
         if x != exclude:
             sendmsg(x, message)
     return
 
 # Received message to relay to other participants
 def smsreceivedmsg(number, message):
+    nickname = r.get("participant:%s:nickname" % number)
     if len(message) > 120:
-        print "---> Message from %s is too long." % (participants[number])
+        print "---> Message from %s is too long." % nickname
         sendmsg(number, ">> Messages must not be longer than 120 characters")
         return
-    finalmsg = "<%s> %s" % (participants[number], message)
+    finalmsg = "<%s> %s" % (nickname, message)
     msgall(finalmsg, number)
 
 # Send an SMS to a number via twilio
