@@ -23,7 +23,12 @@ def sms():
     if request.method != 'POST':
         print "---> Received invalid sms request: method wasn't POST"
         return "Request method must be POST."
-    
+   
+    # Check account id is correct so we know it's from twilio
+    if request.form['AccountSid'] != config("TWILIO_ACCOUNT_SID"):
+        print "---> Received POST request that doesn't appear to be from twilio."
+        return "You are not twilio, go away :P"
+
     from_number = request.form['From']
     if not from_number.startswith("+"):
         print "---> Received SMS from invalid phone number"
@@ -79,7 +84,7 @@ def close_chat():
 # Get a phone number from a nickname
 def get_number(nickname):
     for x in r.smembers("participants"):
-        if r.get("participant:%s:nickname" % x) = nickname:
+        if r.get("participant:%s:nickname" % x) == nickname:
             return x
     return False
 
@@ -117,13 +122,6 @@ def config(var):
         print "Could not find {0} in env, quitting.".format(var)
         sys.exit(1)
 
-# Start flask
-if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 5000))
-    flask_app.run(host='0.0.0.0', port=port)
-
-
-
 
 
 
@@ -134,7 +132,7 @@ if __name__ == "__main__":
 
 # Someone wants to join
 def join(from_number, participant, nickname):
-    if len(nickname) > 15 or len(nickname) < 3:
+    if not 3 < len(nickname) < 15:
         print "---> Nickname for joinee, %s, is too long or too short." % from_number
         sendmsg(from_number, ">> Nickname must be between 3 and 20 characters")
         return
@@ -146,7 +144,7 @@ def join(from_number, participant, nickname):
         if r.sadd("nicknames", nickname):
             r.set("participant:%s:nickname" % (from_number), nickname)
             sendmsg(from_number, ">> Welcome to the chat, %s. Currently %s users." % (nickname, r.scard("participants")))
-            if r.scard("participants") = 1:
+            if r.scard("participants") == 1:
                 # First participant becomes admin
                 r.sadd("admins", from_number)
                 sendmsg(from_number, ">> You are the admin for this chat.")
@@ -163,14 +161,14 @@ def leave(from_number, participant, msg=''):
     if participant:
         nickname = r.get("participant:%s:nickname" % from_number)
         if msg != '':
-            msgall(">> %s %s" % nickname, msg)
+            msgall(">> %s %s" % (nickname, msg))
         else:
             msgall( ">> %s has left the chat." % nickname)
         r.srem("participants", from_number)
         r.srem("nicknames", nickname)
         r.delete("participant:%s:nickname" % from_number)
 
-        if r.srem("admins", from_number) and r.scard("admins") = 0:
+        if r.srem("admins", from_number) and r.scard("admins") == 0:
             # No admins left, chat closes
             close_chat()
 
@@ -180,7 +178,7 @@ def nick(from_number, participant, new):
     
     if not participant: return
 
-    if len(new) > 15 or len(new) < 3:
+    if not 3 < len(new) < 15:
         print "---> New nickname for %s is too long or too short." % current
         sendmsg(from_number, ">> Nickname must be between 3 and 20 characters")
         return
@@ -239,3 +237,10 @@ def close(from_number, participant, msg=''):
 
 ####################################################
 ####################################################
+
+
+
+# Start flask
+if __name__ == "__main__":
+    port = int(os.environ.get('PORT', 5000))
+    flask_app.run(host='0.0.0.0', port=port)
