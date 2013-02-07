@@ -221,6 +221,16 @@ def ban(from_number, participant, banee):
         leave(number, True, "has been banned from the chat.")
         r.sadd("banned", number)
 
+# An admin wants to unban someone
+def unban(from_number, participant, unbanee):
+    if r.sismember("admins", from_number):
+        if r.sismember("banned", unbanee):
+            r.srem("banned", unbanee)
+            print "---> %s has been unbanned." % unbanee
+            sendmsg(from_number, "%s successfully unbanned.")
+        else:
+            sendmsg(from_number, "%s is not banned...")
+
 def start(from_number, participant, msg=''):
     if r.sismember("admins", from_number):
         running = True
