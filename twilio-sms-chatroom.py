@@ -13,7 +13,10 @@ running = True
 
 @flask_app.route('/')
 def index():
-    return "SMS Chatroom"
+    html = "<h1> Twilio SMS Chatroom </h1>"
+    for item in r.lrange("logs", 0, -1):
+        html += item + "</br>"
+    return html
 
 # Received an SMS
 @flask_app.route('/sms', methods=['GET','POST'])
@@ -91,6 +94,9 @@ def get_number(nickname):
 # Send a message to all participants (excl. 2nd arg)
 def msgall(message, exclude=0):
     print message
+    r.lpush("logs", message)
+    if r.llen("logs") > 20: r.rpop("logs")
+
     for x in r.smembers("participants"):
         if x != exclude:
             sendmsg(x, message)
