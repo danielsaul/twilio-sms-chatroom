@@ -1,4 +1,5 @@
 import os
+import cgi
 import string
 import redis
 from flask import Flask
@@ -15,7 +16,7 @@ running = True
 def index():
     html = "<h1> Twilio SMS Chatroom </h1>"
     for item in r.lrange("logs", 0, -1):
-        html += item + "</br>"
+        html += cgi.escape(item) + "</br>"
     return html
 
 # Received an SMS
