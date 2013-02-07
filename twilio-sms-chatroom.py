@@ -39,14 +39,14 @@ def sms():
         print "---> Received blank sms from %s" % (from_number)
         return 'Blank message'
 
-    if message.lower().startswith("#start") or message.lower().startswith("#stop") or message.lower().startswith("#close") :
+    if message.lower()[1:].startswith("resume") or message.lower()[1:].startswith("pause") or message.lower()[1:].startswith("close") :
         #Admin command
         sms_command(from_number, message)
         return 'Received command'
     
     if not running: return 'Not running'
 
-    if message.startswith("#"):
+    if message.startswith("#") or message.startswith("/"):
         #Command
         sms_command(from_number, message)
         return 'Received command'
