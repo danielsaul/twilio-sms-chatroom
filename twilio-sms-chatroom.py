@@ -6,6 +6,7 @@ from flask import Flask
 from flask import request
 from twilio.rest import TwilioRestClient
 
+import profanity
 
 flask_app = Flask(__name__)
 twilio_client = TwilioRestClient()
@@ -20,14 +21,9 @@ def index():
     return html
 
 # Received an SMS
-@flask_app.route('/sms', methods=['GET','POST'])
+@flask_app.route('/sms', methods=['POST'])
 def sms():
 
-    # Check its a POST request
-    if request.method != 'POST':
-        print "---> Received invalid sms request: method wasn't POST"
-        return "Request method must be POST."
-   
     # Check account id is correct so we know it's from twilio
     if request.form['AccountSid'] != config("TWILIO_ACCOUNT_SID"):
         print "---> Received POST request that doesn't appear to be from twilio."
@@ -110,6 +106,10 @@ def smsreceivedmsg(number, message):
         print "---> Message from %s is too long." % nickname
         sendmsg(number, ">> Messages must not be longer than 120 characters")
         return
+    if profanity.score(message) > 5:
+        print "---> Message from %s has high profanity score." % nickname
+        sendmsg(number, ">> Message blocked by profanity filter.")
+        return
     finalmsg = "<%s> %s" % (nickname, message)
     msgall(finalmsg, number)
 
@@ -142,6 +142,10 @@ def join(from_number, participant, nickname):
     if not 3 < len(nickname) < 15:
         print "---> Nickname for joinee, %s, is too long or too short." % from_number
         sendmsg(from_number, ">> Nickname must be between 3 and 20 characters")
+        return
+    if profanity.score(message) > 5:
+        print "---> Nickname for joinee, %s, has high profanity score." % from_number
+        sendmsg(number, ">> Nickname blocked by profanity filter.")
         return
     if r.sismember("banned", from_number):
         print "---> Banned user, %s, tried to join." % from_number
@@ -182,7 +186,7 @@ def leave(from_number, participant, msg=''):
 # Someone wants to change their nickname
 def nick(from_number, participant, new):
     current = r.get("participant:%s:nickname" % from_number)
-    
+
     if not participant: return
 
     if not 3 < len(new) < 15:
@@ -198,6 +202,18 @@ def nick(from_number, participant, new):
         print "---> New nickname for %s is already in use." % current
         sendmsg(from_number, ">> Nickname already in use.")
         return
+
+# Someone wants to private message someone else
+def pm(from_number, participant, msg):
+    if not participant: return
+    message = msg.split(" ", 1)
+    to_nick = message[0]
+    if r.sismember("nicknames", to_nick):
+        from_nick = r.get("participant:%s:nickname" % from_number)
+        to_number = get_number(to_nick)
+        sendmsg(to_number, ">>> %s > %s" % (from_nick, message[1]))
+    else:
+        sendmsg(from_number, ">> User does not exist.")
 
 # Someone wants a list of participants
 def names(from_number, participant, msg=''):
@@ -238,12 +254,12 @@ def unban(from_number, participant, unbanee):
         else:
             sendmsg(from_number, "%s is not banned...")
 
-def start(from_number, participant, msg=''):
+def resume(from_number, participant, msg=''):
     if r.sismember("admins", from_number):
         running = True
         msgall(">> Chat resumed.")
 
-def stop(from_number, participant, msg=''):
+def pause(from_number, participant, msg=''):
     if r.sismember("admins", from_number):
         msgall(">> Chat is being temporarily paused.")
         running = False
