@@ -6,8 +6,6 @@ from flask import Flask
 from flask import request
 from twilio.rest import TwilioRestClient
 
-import profanity
-
 flask_app = Flask(__name__)
 twilio_client = TwilioRestClient()
 r = redis.StrictRedis(host='localhost', port=6379, db=0)
@@ -64,14 +62,17 @@ def sms():
 # Command
 def sms_command(from_number, message):
     command = message.split(" ", 1)
-    if len(command) == 1:
-        command.append('')
+    if len(command) == 1: command.append('')
     participant = r.sismember("participants", from_number)
     try:
+        #getattr(commands, command[0].lower()[1:])(from_number, participant, command[1])
         globals()[command[0].lower()[1:]](from_number, participant, command[1])
-    except:
+    except AttributeError:
         print "---> Invalid command received from %s (%s)" % (from_number, command[0])
         sendmsg(from_number, ">> Invalid command.")
+    except Exception, e:
+        print "Unhandled error"
+        print e
 
 # Close the Chatroom
 def close_chat():
@@ -106,10 +107,6 @@ def smsreceivedmsg(number, message):
         print "---> Message from %s is too long." % nickname
         sendmsg(number, ">> Messages must not be longer than 120 characters")
         return
-    if profanity.score(message) > 5:
-        print "---> Message from %s has high profanity score." % nickname
-        sendmsg(number, ">> Message blocked by profanity filter.")
-        return
     finalmsg = "<%s> %s" % (nickname, message)
     msgall(finalmsg, number)
 
@@ -131,8 +128,6 @@ def config(var):
 
 
 
-
-
 #######################################
 ### COMMANDS ##########################
 #######################################
@@ -142,10 +137,6 @@ def join(from_number, participant, nickname):
     if not 3 < len(nickname) < 15:
         print "---> Nickname for joinee, %s, is too long or too short." % from_number
         sendmsg(from_number, ">> Nickname must be between 3 and 20 characters")
-        return
-    if profanity.score(message) > 5:
-        print "---> Nickname for joinee, %s, has high profanity score." % from_number
-        sendmsg(number, ">> Nickname blocked by profanity filter.")
         return
     if r.sismember("banned", from_number):
         print "---> Banned user, %s, tried to join." % from_number
@@ -270,7 +261,6 @@ def close(from_number, participant, msg=''):
 
 ####################################################
 ####################################################
-
 
 
 # Start flask
